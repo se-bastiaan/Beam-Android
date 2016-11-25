@@ -3,22 +3,22 @@ package com.github.se_bastiaan.beam.logger;
 public class NoOpLogger implements ILogger {
 
     @Override
-    public void d(String message) {
+    public void d(String tag, String message) {
         // Do nothing
     }
 
     @Override
-    public void i(String message) {
+    public void i(String tag, String message) {
         // Do nothing
     }
 
     @Override
-    public void w(Throwable throwable, String message) {
+    public void w(String tag, String message, Throwable throwable) {
         // Do nothing
     }
 
     @Override
-    public void e(Throwable throwable, String message) {
+    public void e(String tag, String message, Throwable throwable) {
         // Do nothing
     }
 

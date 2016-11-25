@@ -17,62 +17,65 @@
 
 package com.github.se_bastiaan.beam.googlecast;
 
+import android.app.Activity;
+import android.app.Application;
 import android.content.Context;
 import android.net.Uri;
 import android.os.Bundle;
-import android.os.Handler;
 import android.support.v7.media.MediaRouteSelector;
 import android.support.v7.media.MediaRouter;
 
 import com.github.se_bastiaan.beam.BaseBeamClient;
-import com.github.se_bastiaan.beam.BeamDevice;
+import com.github.se_bastiaan.beam.device.BeamDevice;
 import com.github.se_bastiaan.beam.BeamListener;
+import com.github.se_bastiaan.beam.device.GoogleCastDevice;
 import com.github.se_bastiaan.beam.logger.Logger;
-import com.github.se_bastiaan.beam.model.Playback;
-import com.google.android.gms.cast.Cast;
-import com.google.android.gms.cast.CastMediaControlIntent;
-import com.google.android.gms.cast.LaunchOptions;
+import com.github.se_bastiaan.beam.Playback;
 import com.google.android.gms.cast.MediaInfo;
 import com.google.android.gms.cast.MediaMetadata;
 import com.google.android.gms.cast.MediaStatus;
-import com.google.android.gms.cast.RemoteMediaPlayer;
-import com.google.android.gms.common.ConnectionResult;
-import com.google.android.gms.common.api.GoogleApiClient;
-import com.google.android.gms.common.api.ResultCallback;
-import com.google.android.gms.common.api.Status;
+import com.google.android.gms.cast.framework.CastContext;
+import com.google.android.gms.cast.framework.CastSession;
+import com.google.android.gms.cast.framework.Session;
+import com.google.android.gms.cast.framework.SessionManager;
+import com.google.android.gms.cast.framework.SessionManagerListener;
+import com.google.android.gms.cast.framework.media.RemoteMediaClient;
 import com.google.android.gms.common.images.WebImage;
 
-import java.io.IOException;
 import java.util.HashSet;
 import java.util.Set;
 
-public class GoogleCastClient extends BaseBeamClient {
+public class GoogleCastClient extends BaseBeamClient implements Application.ActivityLifecycleCallbacks {
     
     private final String TAG = getClass().getCanonicalName();
 
-    private final Set<MediaRouter.RouteInfo> mDiscoveredDevices = new HashSet<>();
+    private final Set<MediaRouter.RouteInfo> discoveredDevices = new HashSet<>();
 
-    private Context context;
-    private Handler handler;
-    private BeamListener listener;
+    private MediaRouteSelector mediaRouterSelector;
     private MediaRouter mediaRouter;
-    private GoogleApiClient googleApiClient;
-    private GoogleDevice currentDevice;
-    private boolean waitingForReconnect = false, applicationStarted = false;
-    private RemoteMediaPlayer remoteMediaPlayer;
+    private CastContext castContext;
+    private SessionManager sessionManager;
+    private CastSession castSession;
+    private RemoteMediaClient remoteMediaClient;
+    private GoogleCastDevice currentDevice;
+
+    private BeamListener listener;
 
     public GoogleCastClient(Context context, BeamListener listener) {
-        this.context = context;
         this.listener = listener;
-        handler = new Handler(context.getApplicationContext().getMainLooper());
+
+        ((Application) context.getApplicationContext()).registerActivityLifecycleCallbacks(this);
+
+        castContext = CastContext.getSharedInstance(context.getApplicationContext());
+        sessionManager = castContext.getSessionManager();
+        sessionManager.addSessionManagerListener(sessionManagerListener);
+
         mediaRouter = MediaRouter.getInstance(context.getApplicationContext());
+        mediaRouter.addCallback(castContext.getMergedSelector(), mediaRouterCallback, MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY);
+    }
 
-        MediaRouteSelector mediaRouteSelector = new MediaRouteSelector.Builder().addControlCategory(CastMediaControlIntent.categoryForCast(CastMediaControlIntent
-                .DEFAULT_MEDIA_RECEIVER_APPLICATION_ID)).build();
-        mediaRouter.addCallback(mediaRouteSelector, mMediaRouterCallback,  MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY);
-
-        remoteMediaPlayer = new RemoteMediaPlayer();
-        remoteMediaPlayer.setOnStatusUpdatedListener(mMediaPlayerStatusListener);
+    public void setContext(Context context) {
+        // do nothing
     }
 
     /**
@@ -80,67 +83,48 @@ public class GoogleCastClient extends BaseBeamClient {
      */
     public void destroy() {
         disconnect();
-        handler.removeCallbacksAndMessages(null);
-        mediaRouter.removeCallback(mMediaRouterCallback);
-    }
-
-    /**
-     * @param context New context for future use
-     */
-    public void setContext(Context context) {
-        this.context = context;
+        mediaRouter.removeCallback(mediaRouterCallback);
     }
 
     @Override
-    public void loadMedia(Playback playback, String location, float position) {
-        if(currentDevice != null && googleApiClient != null && googleApiClient.isConnected()) {
-            MediaMetadata mediaMetadata = new MediaMetadata(MediaMetadata.MEDIA_TYPE_MOVIE);
-            mediaMetadata.putString(MediaMetadata.KEY_TITLE, playback.title);
-            mediaMetadata.addImage(new WebImage(Uri.parse(playback.image)));
-            MediaInfo mediaInfo = new MediaInfo.Builder(
-                    location)
-                    .setContentType("video/mp4")
+    public void loadMedia(Playback playback, float position) {
+        if(currentDevice != null && remoteMediaClient != null && castSession != null) {
+            MediaMetadata movieMetadata = new MediaMetadata(MediaMetadata.MEDIA_TYPE_MOVIE);
+
+            movieMetadata.putString(MediaMetadata.KEY_TITLE, playback.title);
+            movieMetadata.putString(MediaMetadata.KEY_SUBTITLE, playback.subtitleLocation);
+            movieMetadata.addImage(new WebImage(Uri.parse(playback.image)));
+
+            MediaInfo mediaInfo = new MediaInfo.Builder(playback.videoLocation)
                     .setStreamType(MediaInfo.STREAM_TYPE_BUFFERED)
-                    .setMetadata(mediaMetadata)
+                    .setContentType("video/mp4")
+                    .setMetadata(movieMetadata)
                     .build();
-            try {
-                remoteMediaPlayer.load(googleApiClient, mediaInfo, true)
-                        .setResultCallback(new ResultCallback<RemoteMediaPlayer.MediaChannelResult>() {
-                            @Override
-                            public void onResult(RemoteMediaPlayer.MediaChannelResult result) {
-                                if (result.getStatus().isSuccess()) {
-                                    Logger.d(TAG, "Playback loaded successfully");
-                                }
-                            }
-                        });
-            } catch (IllegalStateException e) {
-                Logger.e(TAG, "Problem occurred with playback during loading", e);
-            } catch (Exception e) {
-                Logger.e(TAG, "Problem opening playback during loading", e);
-            }
+
+            remoteMediaClient.load(mediaInfo, true, 0); // TODO position
         }
     }
 
     @Override
     public void play() {
-
+        remoteMediaClient.play();
     }
 
     @Override
     public void pause() {
-
+        remoteMediaClient.pause();
     }
 
     @Override
     public void seek(float position) {
-
+        remoteMediaClient.seek((long) (remoteMediaClient.getStreamDuration() * position));
     }
 
     @Override
     public void stop() {
-        if(currentDevice != null && googleApiClient != null && googleApiClient.isConnected()) {
+        if(currentDevice != null && remoteMediaClient != null && castSession != null) {
             try {
-                remoteMediaPlayer.stop(googleApiClient);
+                remoteMediaClient.stop();
             } catch (IllegalStateException e) {
                 // Not able to stop because there was nothing playing. Just leave it.
             }
@@ -156,7 +140,7 @@ public class GoogleCastClient extends BaseBeamClient {
             disconnect();
         }
 
-        currentDevice = (GoogleDevice) device;
+        currentDevice = (GoogleCastDevice) device;
         mediaRouter.selectRoute(currentDevice.routeInfo);
         Logger.d(TAG, "Connecting to google cast device: " + device.getId() + " - " + currentDevice.getName());
 
@@ -168,15 +152,8 @@ public class GoogleCastClient extends BaseBeamClient {
 
     @Override
     public void disconnect() {
-        if (currentDevice != null && googleApiClient != null && googleApiClient.isConnected()) {
-            try {
-                Cast.CastApi.leaveApplication(googleApiClient);
-                applicationStarted = false;
-                googleApiClient.disconnect();
-                googleApiClient = null;
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
+        if (currentDevice != null && remoteMediaClient != null && castSession != null) {
+            sessionManager.endCurrentSession(true);
         }
 
         currentDevice = null;
@@ -186,7 +163,9 @@ public class GoogleCastClient extends BaseBeamClient {
 
     @Override
     public void setVolume(float volume) {
-
+        if (currentDevice != null && remoteMediaClient != null && castSession != null) {
+            remoteMediaClient.setStreamVolume(volume);
+        }
     }
 
     @Override
@@ -194,101 +173,17 @@ public class GoogleCastClient extends BaseBeamClient {
         return currentDevice != null && currentDevice.routeInfo.getVolumeHandling() == MediaRouter.RouteInfo.PLAYBACK_VOLUME_VARIABLE;
     }
 
-    private void reconnectChannels() {
-        try {
-            Cast.CastApi.setMessageReceivedCallbacks(googleApiClient, remoteMediaPlayer.getNamespace(), remoteMediaPlayer);
-            remoteMediaPlayer.requestStatus(googleApiClient);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-
-    private GoogleApiClient.ConnectionCallbacks mConnectionCallbacks = new GoogleApiClient.ConnectionCallbacks() {
-        @Override
-        public void onConnected(Bundle bundle) {
-            Logger.d(TAG, "Connected " + bundle);
-            if (waitingForReconnect) {
-                waitingForReconnect = false;
-                reconnectChannels();
-            } else {
-                listener.onConnected(currentDevice);
-                try {
-                    LaunchOptions launchOptions = new LaunchOptions.Builder().setRelaunchIfRunning(false).build();
-                    Cast.CastApi.launchApplication(googleApiClient, CastMediaControlIntent.DEFAULT_MEDIA_RECEIVER_APPLICATION_ID, launchOptions)
-                            .setResultCallback(
-                                    new ResultCallback<Cast.ApplicationConnectionResult>() {
-                                        @Override
-                                        public void onResult(Cast.ApplicationConnectionResult result) {
-                                            Status status = result.getStatus();
-                                            if (status.isSuccess()) {
-                                                applicationStarted = true;
-                                                reconnectChannels();
-                                            }
-                                        }
-                                    });
-
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            }
-        }
-
-        @Override
-        public void onConnectionSuspended(int i) {
-
-        }
-    };
-
-    private GoogleApiClient.OnConnectionFailedListener mConnectionFailedListener = new GoogleApiClient.OnConnectionFailedListener() {
-        @Override
-        public void onConnectionFailed(ConnectionResult connectionResult) {
-            listener.onConnectionFailed();
-        }
-    };
-
-    private Cast.Listener mCastListener = new Cast.Listener() {
-        @Override
-        public void onVolumeChanged() {
-            if (googleApiClient != null) {
-                Logger.d(TAG, "onVolumeChanged: " + Cast.CastApi.getVolume(googleApiClient));
-            }
-        }
-
-        @Override
-        public void onApplicationDisconnected(int statusCode) {
-            disconnect();
-        }
-
-        @Override
-        public void onApplicationStatusChanged() {
-            if (googleApiClient != null) {
-                Logger.d(TAG, "onApplicationStatusChanged: "
-                        + Cast.CastApi.getApplicationStatus(googleApiClient));
-            }
-        }
-    };
-
-    private MediaRouter.Callback mMediaRouterCallback = new MediaRouter.Callback() {
+    private MediaRouter.Callback mediaRouterCallback = new MediaRouter.Callback() {
         @Override
         public void onRouteSelected(MediaRouter router, MediaRouter.RouteInfo route) {
             super.onRouteSelected(router, route);
-            currentDevice = new GoogleDevice(route);
-            Cast.CastOptions.Builder apiOptionsBuilder = Cast.CastOptions
-                    .builder(currentDevice.getCastDevice(), mCastListener);
-
-            googleApiClient = new GoogleApiClient.Builder(context)
-                    .addApi(Cast.API, apiOptionsBuilder.build())
-                    .addConnectionCallbacks(mConnectionCallbacks)
-                    .addOnConnectionFailedListener(mConnectionFailedListener)
-                    .build();
-
-            googleApiClient.connect();
+            currentDevice = new GoogleCastDevice(route);
         }
 
         @Override
         public void onRouteUnselected(MediaRouter router, MediaRouter.RouteInfo route) {
             super.onRouteUnselected(router, route);
-            if (currentDevice != null && currentDevice.equals(new GoogleDevice(route))) {
+            if (currentDevice != null && currentDevice.equals(new GoogleCastDevice(route))) {
                 currentDevice = null;
                 listener.onDisconnected();
             }
@@ -297,16 +192,26 @@ public class GoogleCastClient extends BaseBeamClient {
         @Override
         public void onRouteAdded(MediaRouter router, MediaRouter.RouteInfo route) {
             super.onRouteAdded(router, route);
-            GoogleDevice device = new GoogleDevice(route);
-            if(mDiscoveredDevices.add(route))
+            GoogleCastDevice device = new GoogleCastDevice(route);
+            if(discoveredDevices.add(route)) {
                 listener.onDeviceDetected(device);
+            }
+        }
+
+        @Override
+        public void onRouteChanged(MediaRouter router, MediaRouter.RouteInfo route) {
+            super.onRouteChanged(router, route);
+            GoogleCastDevice device = new GoogleCastDevice(route);
+            if(discoveredDevices.add(route)) {
+                listener.onDeviceDetected(device);
+            }
         }
 
         @Override
         public void onRouteRemoved(MediaRouter router, MediaRouter.RouteInfo route) {
             super.onRouteRemoved(router, route);
-            GoogleDevice device = new GoogleDevice(route);
-            mDiscoveredDevices.remove(route);
+            GoogleCastDevice device = new GoogleCastDevice(route);
+            discoveredDevices.remove(route);
             listener.onDeviceRemoved(device);
         }
 
@@ -317,16 +222,103 @@ public class GoogleCastClient extends BaseBeamClient {
         }
     };
 
-    private RemoteMediaPlayer.OnStatusUpdatedListener mMediaPlayerStatusListener = new RemoteMediaPlayer.OnStatusUpdatedListener() {
+    private RemoteMediaClient.ProgressListener mediaPlayerProgressListener = new RemoteMediaClient.ProgressListener() {
         @Override
-        public void onStatusUpdated() {
-            MediaStatus mediaStatus = remoteMediaPlayer.getMediaStatus();
+        public void onProgressUpdated(long progressMs, long durationMs) {
+            MediaStatus mediaStatus = remoteMediaClient.getMediaStatus();
             if(mediaStatus != null) {
                 boolean isPlaying = mediaStatus.getPlayerState() == MediaStatus.PLAYER_STATE_PLAYING;
-                float position = (float) remoteMediaPlayer.getApproximateStreamPosition();
+                float position = (float) progressMs / durationMs;
                 listener.onPlayBackChanged(isPlaying, position);
             }
         }
     };
 
+    private SessionManagerListener<Session> sessionManagerListener = new SessionManagerListener<Session>() {
+        @Override
+        public void onSessionStarting(Session session) {
+
+        }
+
+        @Override
+        public void onSessionStarted(Session session, String s) {
+            castSession = sessionManager.getCurrentCastSession();
+            remoteMediaClient = castSession.getRemoteMediaClient();
+            remoteMediaClient.addProgressListener(mediaPlayerProgressListener, 10);
+        }
+
+        @Override
+        public void onSessionStartFailed(Session session, int i) {
+
+        }
+
+        @Override
+        public void onSessionEnding(Session session) {
+
+        }
+
+        @Override
+        public void onSessionEnded(Session session, int i) {
+            castSession = null;
+            remoteMediaClient = null;
+        }
+
+        @Override
+        public void onSessionResuming(Session session, String s) {
+
+        }
+
+        @Override
+        public void onSessionResumed(Session session, boolean b) {
+
+        }
+
+        @Override
+        public void onSessionResumeFailed(Session session, int i) {
+
+        }
+
+        @Override
+        public void onSessionSuspended(Session session, int i) {
+
+        }
+    };
+
+    @Override
+    public void onActivityCreated(Activity activity, Bundle bundle) {
+
+    }
+
+    @Override
+    public void onActivityStarted(Activity activity) {
+        mediaRouter.removeCallback(mediaRouterCallback);
+        mediaRouter.addCallback(castContext.getMergedSelector(), mediaRouterCallback, MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY);
+    }
+
+    @Override
+    public void onActivityResumed(Activity activity) {
+
+    }
+
+    @Override
+    public void onActivityPaused(Activity activity) {
+
+    }
+
+    @Override
+    public void onActivityStopped(Activity activity) {
+        mediaRouter.removeCallback(mediaRouterCallback);
+        mediaRouter.addCallback(castContext.getMergedSelector(), mediaRouterCallback);
+
+    }
+
+    @Override
+    public void onActivitySaveInstanceState(Activity activity, Bundle bundle) {
+
+    }
+
+    @Override
+    public void onActivityDestroyed(Activity activity) {
+
+    }
 }

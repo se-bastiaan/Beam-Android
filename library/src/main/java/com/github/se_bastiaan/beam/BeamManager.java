@@ -1,258 +1,110 @@
 /*
- * This file is part of Popcorn Time.
+ * Copyright (C) 2015-2016 Sébastiaan (github.com/se-bastiaan)
  *
- * Popcorn Time is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Popcorn Time is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
+ *      http://www.apache.org/licenses/LICENSE-2.0
  *
- * You should have received a copy of the GNU General Public License
- * along with Popcorn Time. If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.github.se_bastiaan.beam;
 
 import android.content.Context;
 
-import java.net.MalformedURLException;
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.net.URL;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-
 import com.github.se_bastiaan.beam.airplay.AirPlayClient;
-import com.github.se_bastiaan.beam.airplay.AirPlayDevice;
-import com.github.se_bastiaan.beam.dlna.DLNAClient;
-import com.github.se_bastiaan.beam.dlna.DLNADevice;
+import com.github.se_bastiaan.beam.control.ControlManager;
+import com.github.se_bastiaan.beam.control.ControlManagerListener;
+import com.github.se_bastiaan.beam.device.BeamDevice;
+import com.github.se_bastiaan.beam.discovery.DiscoveryManager;
+import com.github.se_bastiaan.beam.discovery.DiscoveryManagerListener;
 import com.github.se_bastiaan.beam.googlecast.GoogleCastClient;
-import com.github.se_bastiaan.beam.googlecast.GoogleDevice;
-import com.github.se_bastiaan.beam.model.Playback;
+
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * BeamManager.java
  * <p/>
  * This class is the god over all casting clients, those are:
- * {@link AirPlayClient}, {@link DLNAClient}, {@link GoogleCastClient}
+ * {@link AirPlayClient}, {@link GoogleCastClient}
  * It takes note when a device has been detected or removed, controls when a device is connected and chooses which client should be used to cast for that specific {@link BeamDevice}
  */
-public class BeamManager {
+public class BeamManager implements DiscoveryManagerListener, ControlManagerListener {
 
-    private static BeamManager INSTANCE;
+    private static BeamManager instance;
 
-    private GoogleCastClient googleCastClient;
-    private AirPlayClient airPlayClient;
-    private DLNAClient dlnaClient;
-    private List<BeamListener> listeners = null;
-    private BeamDevice currentDevice;
-    private Boolean connected = false;
-    private Set<BeamDevice> discoveredDevices = new HashSet<>();
+    private DiscoveryManager discoveryManager;
+    private ControlManager controlManager;
+    private CopyOnWriteArrayList<BeamDiscoveryListener> discoveryListeners;
+    private CopyOnWriteArrayList<BeamControlListener> controlListeners;
+
+    public static synchronized BeamManager init(Context context) {
+        instance = new BeamManager(context.getApplicationContext());
+        return instance;
+    }
+
+    public static BeamManager getInstance() {
+        if (instance == null) {
+            throw new Error("Call BeamManager.init(Context) first");
+        }
+        return instance;
+    }
 
     private BeamManager(Context context) {
-        listeners = new ArrayList<>();
+        discoveryListeners = new CopyOnWriteArrayList<>();
+        controlListeners = new CopyOnWriteArrayList<>();
 
-        googleCastClient = new GoogleCastClient(context, internalListener);
-        airPlayClient = new AirPlayClient(context, internalListener);
-        dlnaClient = new DLNAClient(context, internalListener);
+        discoveryManager = new DiscoveryManager(context);
+        discoveryManager.addListener(this);
+        controlManager = new ControlManager(context);
+        controlManager.addListener(this);
     }
 
-    public static BeamManager getInstance(Context context) {
-        context = context.getApplicationContext();
-
-        if (INSTANCE == null) {
-            INSTANCE = new BeamManager(context);
-        } else {
-            INSTANCE.setContext(context);
-        }
-
-        return INSTANCE;
+    public DiscoveryManager getDiscoveryManager() {
+        return discoveryManager;
     }
 
-    public boolean addListener(BeamListener listener) {
-        return listeners.add(listener);
+    public void addDiscoveryListener(BeamDiscoveryListener listener) {
+        discoveryListeners.add(listener);
     }
 
-    public boolean removeListener(BeamListener listener) {
-        return listeners.remove(listener);
+    public void removeDiscoveryListener(BeamDiscoveryListener listener) {
+        discoveryListeners.remove(listener);
     }
 
-    private void setContext(Context context) {
-        context = context.getApplicationContext();
-        googleCastClient.setContext(context);
-        airPlayClient.setContext(context);
-        dlnaClient.setContext(context);
+    public void addControlListener(BeamControlListener listener) {
+        controlListeners.add(listener);
     }
 
-    public void destroy() {
-        airPlayClient.destroy();
-        dlnaClient.destroy();
-        googleCastClient.destroy();
+    public void removeControlListener(BeamControlListener listener) {
+        controlListeners.remove(listener);
     }
 
-    public BeamDevice[] getDevices() {
-        return discoveredDevices.toArray(new BeamDevice[discoveredDevices.size()]);
-    }
-
-    public boolean hasDevices() {
-        return discoveredDevices.size() > 0;
-    }
-
-    public boolean isConnected() {
-        return connected;
-    }
-
-    public boolean stop() {
-        if (!connected) return false;
-
-        if (currentDevice instanceof GoogleDevice) {
-            googleCastClient.stop();
-        } else if (currentDevice instanceof AirPlayDevice) {
-            airPlayClient.stop();
-        } else if (currentDevice instanceof DLNADevice) {
-            dlnaClient.stop();
-        }
-
-        return false;
-    }
-
-    public boolean loadMedia(Playback playback, String location) {
-        return loadMedia(playback, location, false);
-    }
-
-    public boolean loadMedia(Playback playback, String location, Boolean subs) {
-        if (!connected) return false;
-
-        try {
-            URL url = new URL(location);
-            URI uri = new URI(url.getProtocol(), url.getUserInfo(), url.getHost(), url.getPort(), url.getPath(), url.getQuery(), url.getRef());
-            location = uri.toString();
-        } catch (MalformedURLException e) {
-            e.printStackTrace();
-        } catch (URISyntaxException e) {
-            e.printStackTrace();
-        }
-
-        if (currentDevice instanceof GoogleDevice) {
-            googleCastClient.loadMedia(playback, location);
-        } else if (currentDevice instanceof AirPlayDevice) {
-            airPlayClient.loadMedia(playback, location);
-        } else if (currentDevice instanceof DLNADevice) {
-            dlnaClient.loadMedia(playback, location);
-        }
-
-        return false;
-    }
-
-    public void setDevice(BeamDevice beamDevice) {
-        if(beamDevice == currentDevice) return;
-
-        airPlayClient.disconnect();
-        dlnaClient.disconnect();
-        googleCastClient.disconnect();
-
-        currentDevice = beamDevice;
-
-        if (beamDevice != null) {
-            if (beamDevice instanceof GoogleDevice) {
-                googleCastClient.connect(beamDevice);
-            } else if (beamDevice instanceof AirPlayDevice) {
-                airPlayClient.connect(beamDevice);
-            } else if (beamDevice instanceof DLNADevice) {
-                dlnaClient.connect(beamDevice);
-            }
+    @Override
+    public void onDeviceAdded(DiscoveryManager manager, BeamDevice device) {
+        for (BeamDiscoveryListener listener : discoveryListeners) {
+            listener.onDeviceAdded(this, device);
         }
     }
 
-    private BeamListener internalListener = new BeamListener() {
-        @Override
-        public void onConnected(BeamDevice device) {
-            if((!device.equals(currentDevice) && !connected) || connected) return;
-
-            connected = true;
-            for(BeamListener listener : listeners) {
-                listener.onConnected(currentDevice);
-            }
+    @Override
+    public void onDeviceRemoved(DiscoveryManager manager, BeamDevice device) {
+        for (BeamDiscoveryListener listener : discoveryListeners) {
+            listener.onDeviceRemoved(this, device);
         }
+    }
 
-        @Override
-        public void onDisconnected() {
-            if(!connected) return;
-
-            connected = false;
-            currentDevice = null;
-
-            for(BeamListener listener : listeners) {
-                listener.onDisconnected();
-            }
+    @Override
+    public void onDeviceUpdated(DiscoveryManager manager, BeamDevice device) {
+        for (BeamDiscoveryListener listener : discoveryListeners) {
+            listener.onDeviceUpdated(this, device);
         }
-
-        @Override
-        public void onCommandFailed(String command, String message) {
-            for(BeamListener listener : listeners) {
-                listener.onCommandFailed(command, message);
-            }
-        }
-
-        @Override
-        public void onConnectionFailed() {
-            for(BeamListener listener : listeners) {
-                listener.onConnectionFailed();
-            }
-        }
-
-        @Override
-        public void onDeviceDetected(BeamDevice device) {
-            if(discoveredDevices.add(device)) {
-                for(BeamListener listener : listeners) {
-                    listener.onDeviceDetected(device);
-                }
-            }
-        }
-
-        @Override
-        public void onDeviceSelected(BeamDevice device) {
-            currentDevice = device;
-            for(BeamListener listener : listeners) {
-                listener.onDeviceSelected(device);
-            }
-        }
-
-        @Override
-        public void onDeviceRemoved(BeamDevice device) {
-            if(discoveredDevices.remove(device)) {
-                for (BeamListener listener : listeners) {
-                    listener.onDeviceRemoved(device);
-                }
-            }
-        }
-
-        @Override
-        public void onVolumeChanged(double value, boolean isMute) {
-            for(BeamListener listener : listeners) {
-                listener.onVolumeChanged(value, isMute);
-            }
-        }
-
-        @Override
-        public void onReady() {
-            for(BeamListener listener : listeners) {
-                listener.onReady();
-            }
-        }
-
-        @Override
-        public void onPlayBackChanged(boolean isPlaying, float position) {
-            for(BeamListener listener : listeners) {
-                listener.onPlayBackChanged(isPlaying, position);
-            }
-        }
-    };
+    }
 
 }

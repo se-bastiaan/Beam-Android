@@ -7,12 +7,13 @@ import android.os.Handler;
 import android.widget.EditText;
 
 import com.github.se_bastiaan.beam.BaseBeamClient;
-import com.github.se_bastiaan.beam.BeamDevice;
+import com.github.se_bastiaan.beam.device.AirPlayDevice;
+import com.github.se_bastiaan.beam.device.BeamDevice;
 import com.github.se_bastiaan.beam.BeamListener;
-import com.github.se_bastiaan.beam.airplay.plist.PropertyListBuilder;
-import com.github.se_bastiaan.beam.airplay.plist.PropertyListParser;
+import com.github.se_bastiaan.beam.control.airplay.PropertyListBuilder;
+import com.github.se_bastiaan.beam.control.airplay.PropertyListParser;
 import com.github.se_bastiaan.beam.logger.Logger;
-import com.github.se_bastiaan.beam.model.Playback;
+import com.github.se_bastiaan.beam.Playback;
 import com.squareup.okhttp.Authenticator;
 import com.squareup.okhttp.Callback;
 import com.squareup.okhttp.MediaType;
@@ -35,8 +36,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import javax.jmdns.ServiceEvent;
 import javax.jmdns.ServiceInfo;
 import javax.jmdns.ServiceListener;
-
-import static org.fourthline.cling.binding.xml.Descriptor.Device.ELEMENT.url;
 
 /**
  * AirPlayClient.java
@@ -142,18 +141,17 @@ public class AirPlayClient extends BaseBeamClient implements ServiceListener {
     /**
      * Load playback to device and start playing
      * @param playback Playback object used for MetaData
-     * @param location Location of playback that is supposed to be played
      * @param position Start position of playback
      */
     @Override
-    public void loadMedia(Playback playback, String location, float position) {
+    public void loadMedia(Playback playback, float position) {
         if(currentDevice == null) return;
         Logger.d(TAG, String.format("Session ID: %s", sessionId));
 
         stop();
 
         PropertyListBuilder builder = new PropertyListBuilder();
-        builder.putString("Content-Location", location);
+        builder.putString("Content-Location", playback.videoLocation);
         builder.putReal("Start-Position", 0);
 
         RequestBody body = RequestBody.create(TYPE_PARAMETERS, builder.toString());
@@ -475,15 +473,14 @@ public class AirPlayClient extends BaseBeamClient implements ServiceListener {
                                         readyToPlay = (Boolean) rootDict.get("readyToPlay");
                                     }
 
-                                    Logger.d(TAG, "PlaybackInfo: playing: " + playing + ", rate: " + rate + ", position: " + position + ", ready: " + readyToPlay);
+                                    Logger.d(TAG, "PlaybackInfo: playing: " + playing + ", rate: " + rate + ", position: " + position + ", duration: " + duration + ", ready: " +
+                                            readyToPlay);
 
                                     if (readyToPlay) {
                                         listener.onReady();
                                     }
 
                                     listener.onPlayBackChanged(playing, position);
-
-                                    if (position == duration) return;
                                 }
                             } catch (Exception e) {
                                 e.printStackTrace();

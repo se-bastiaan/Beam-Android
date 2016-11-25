@@ -14,28 +14,16 @@
  * limitations under the License.
  */
 
-package com.github.se_bastiaan.beam;
+package com.github.se_bastiaan.beam.discovery;
 
 import com.github.se_bastiaan.beam.device.BeamDevice;
 
-public interface BeamListener {
-    void onConnected(BeamDevice device);
+public interface DiscoveryManagerListener {
 
-    void onDisconnected();
+    void onDeviceAdded(DiscoveryManager manager, BeamDevice device);
 
-    void onCommandFailed(String command, String message);
+    void onDeviceRemoved(DiscoveryManager manager, BeamDevice device);
 
-    void onConnectionFailed();
+    void onDeviceUpdated(DiscoveryManager manager, BeamDevice device);
 
-    void onDeviceDetected(BeamDevice device);
-
-    void onDeviceSelected(BeamDevice device);
-
-    void onDeviceRemoved(BeamDevice device);
-
-    void onVolumeChanged(double value, boolean isMute);
-
-    void onReady();
-
-    void onPlayBackChanged(boolean isPlaying, float position);
 }

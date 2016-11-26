@@ -17,134 +17,49 @@
 package com.github.se_bastiaan.beam.discovery.client;
 
 import android.content.Context;
-import android.net.nsd.NsdManager;
-import android.net.nsd.NsdServiceInfo;
+import android.util.Log;
 
+import com.github.druk.rxdnssd.BonjourService;
+import com.github.druk.rxdnssd.RxDnssd;
+import com.github.druk.rxdnssd.RxDnssdEmbedded;
 import com.github.se_bastiaan.beam.device.AirPlayDevice;
 import com.github.se_bastiaan.beam.discovery.DiscoveryClient;
 import com.github.se_bastiaan.beam.discovery.DiscoveryClientListener;
-import com.github.se_bastiaan.beam.discovery.nsd.RecordResolver;
 import com.github.se_bastiaan.beam.util.ThreadUtil;
 
-import java.io.IOException;
 import java.util.Date;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+
+import javax.jmdns.ServiceEvent;
+import javax.jmdns.ServiceListener;
+
+import rx.Subscription;
+import rx.android.schedulers.AndroidSchedulers;
+import rx.functions.Action1;
+import rx.schedulers.Schedulers;
 
 /**
  * Currently only discovers AirPlay devices
  */
 public class AirplayDiscoveryClient implements DiscoveryClient {
 
-    private static final String SERVICE_TYPE = "_airplay._tcp.";
-    private static final int RESOLVE_TIMEOUT = 10000;
+    private static final String SERVICE_TYPE = "_airplay._tcp";
 
-    final NsdManager nsdManager;
+    private Subscription subscription;
+    private RxDnssd dnssd;
 
     private ConcurrentHashMap<String, AirPlayDevice> foundDevices;
     private CopyOnWriteArrayList<DiscoveryClientListener> serviceListeners;
 
     private boolean isRunning = false;
 
-    private NsdManager.DiscoveryListener discoveryListener = new NsdManager.DiscoveryListener() {
-        @Override
-        public void onStartDiscoveryFailed(String s, int i) {
-
-        }
-
-        @Override
-        public void onStopDiscoveryFailed(String s, int i) {
-
-        }
-
-        @Override
-        public void onDiscoveryStarted(String s) {
-
-        }
-
-        @Override
-        public void onDiscoveryStopped(String s) {
-
-        }
-
-        @Override
-        public void onServiceFound(NsdServiceInfo nsdServiceInfo) {
-//            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-//                nsdManager.resolveService(nsdServiceInfo, resolveListener);
-//            } else {
-                resolveService(nsdServiceInfo);
-//            }
-        }
-
-        @Override
-        public void onServiceLost(NsdServiceInfo nsdServiceInfo) {
-            String key = nsdServiceInfo.getHost().getHostAddress();
-
-            final AirPlayDevice device = foundDevices.get(key);
-
-            if (device != null) {
-                ThreadUtil.runOnMainThread(new Runnable() {
-
-                    @Override
-                    public void run() {
-                        for (DiscoveryClientListener listener : serviceListeners) {
-                            listener.onDeviceRemoved(AirplayDiscoveryClient.this, device);
-                        }
-                    }
-                });
-            }
-
-            if (foundDevices.containsKey(key)) {
-                foundDevices.remove(key);
-            }
-        }
-    };
-
-    private NsdManager.ResolveListener resolveListener = new NsdManager.ResolveListener() {
-        @Override
-        public void onResolveFailed(NsdServiceInfo nsdServiceInfo, int i) {
-
-        }
-
-        @Override
-        public void onServiceResolved(NsdServiceInfo serviceInfo) {
-            String name = serviceInfo.getServiceName();
-            final String ipAddress = serviceInfo.getHost().getHostAddress();
-
-            AirPlayDevice foundDevice = foundDevices.get(ipAddress);
-
-            boolean isNew = foundDevice == null;
-            boolean listUpdateFlag = false;
-
-            if (isNew) {
-                foundDevice = new AirPlayDevice(serviceInfo, null);
-                listUpdateFlag = true;
-            }
-            else {
-                if (!foundDevice.getName().equals(name)) {
-                    foundDevice.setName(name);
-                    listUpdateFlag = true;
-                }
-            }
-
-            foundDevice.setLastDetection(new Date().getTime());
-
-            foundDevices.put(ipAddress, foundDevice);
-
-            if (listUpdateFlag) {
-                for (DiscoveryClientListener listener: serviceListeners) {
-                    listener.onDeviceAdded(AirplayDiscoveryClient.this, foundDevice);
-                }
-            }
-        }
-    };
-
     public AirplayDiscoveryClient(Context context) {
-        nsdManager = (NsdManager) context.getApplicationContext().getSystemService(Context.NSD_SERVICE);
-
         foundDevices = new ConcurrentHashMap<>(8, 0.75f, 2);
 
         serviceListeners = new CopyOnWriteArrayList<>();
+
+        dnssd = new RxDnssdEmbedded();
     }
 
     @Override
@@ -154,22 +69,36 @@ public class AirplayDiscoveryClient implements DiscoveryClient {
 
         isRunning = true;
 
-        try {
-            nsdManager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, discoveryListener);
-        } catch (IllegalArgumentException e) {
-            // service discovery already active
-        }
+        subscription = dnssd.browse(SERVICE_TYPE, "local.")
+                .compose(dnssd.resolve())
+                .compose(dnssd.queryRecords())
+                .subscribeOn(Schedulers.io())
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribe(new Action1<BonjourService>() {
+                    @Override
+                    public void call(BonjourService bonjourService) {
+                        if (bonjourService.isLost()) {
+                            handleServiceLost(bonjourService);
+                        } else {
+                            handleServiceFound(bonjourService);
+                        }
+                    }
+                }, new Action1<Throwable>() {
+                    @Override
+                    public void call(Throwable throwable) {
+                        throwable.printStackTrace();
+                    }
+                });
     }
 
     @Override
     public void stop() {
         isRunning = false;
 
-        try {
-            nsdManager.stopServiceDiscovery(discoveryListener);
-        } catch (IllegalArgumentException e) {
-            // service discovery not active on listener
+        if (subscription != null && !subscription.isUnsubscribed()) {
+            subscription.unsubscribe();
         }
+        subscription = null;
     }
 
     @Override
@@ -181,14 +110,12 @@ public class AirplayDiscoveryClient implements DiscoveryClient {
     @Override
     public void reset() {
         stop();
-
         foundDevices.clear();
     }
 
     @Override
     public void rescan() {
-        nsdManager.stopServiceDiscovery(discoveryListener);
-        nsdManager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, discoveryListener);
+        restart();
     }
 
     @Override
@@ -201,55 +128,60 @@ public class AirplayDiscoveryClient implements DiscoveryClient {
         serviceListeners.remove(listener);
     }
 
-    private void resolveService(final NsdServiceInfo serviceInfo) {
-        ThreadUtil.runInBackground(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    RecordResolver.Result result = RecordResolver.resolve(serviceInfo.getServiceName() + "." + serviceInfo.getServiceType() + "local", RESOLVE_TIMEOUT);
+    private void handleServiceFound(BonjourService service) {
+        String name = service.getServiceName();
 
-                    if ((result.a == null && result.srv == null && result.txt == null) || !isRunning) {
-                        return;
-                    }
+        String key = getServiceKey(service);
+        AirPlayDevice foundDevice = foundDevices.get(key);
 
-                    String name = serviceInfo.getServiceName();
-                    final String ipAddress = serviceInfo.getHost().getHostAddress();
+        boolean isNew = foundDevice == null;
+        boolean listUpdateFlag = false;
 
-                    AirPlayDevice foundDevice = foundDevices.get(ipAddress);
-
-                    boolean isNew = foundDevice == null;
-                    boolean listUpdateFlag = false;
-
-                    if (isNew) {
-                        foundDevice = new AirPlayDevice(serviceInfo, result);
-                        listUpdateFlag = true;
-                    }
-                    else {
-                        if (!foundDevice.getName().equals(name)) {
-                            foundDevice.setName(name);
-                            listUpdateFlag = true;
-                        }
-                    }
-
-                    foundDevice.setLastDetection(new Date().getTime());
-
-                    foundDevices.put(ipAddress, foundDevice);
-
-                    if (listUpdateFlag) {
-                        ThreadUtil.runOnMainThread(new Runnable() {
-                            @Override
-                            public void run() {
-                                for (DiscoveryClientListener listener: serviceListeners) {
-                                    listener.onDeviceAdded(AirplayDiscoveryClient.this, foundDevices.get(ipAddress));
-                                }
-                            }
-                        });
-                    }
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
+        if (isNew) {
+            foundDevice = new AirPlayDevice(service);
+            listUpdateFlag = true;
+        }
+        else {
+            if (!foundDevice.getName().equals(name)) {
+                foundDevice.setName(name);
+                listUpdateFlag = true;
             }
-        });
+        }
+
+        foundDevice.setLastDetection(new Date().getTime());
+
+        foundDevices.put(key, foundDevice);
+
+        if (listUpdateFlag) {
+            for (DiscoveryClientListener listener: serviceListeners) {
+                listener.onDeviceAdded(AirplayDiscoveryClient.this, foundDevice);
+            }
+        }
+    }
+
+    private void handleServiceLost(BonjourService service) {
+        final AirPlayDevice device = foundDevices.get(getServiceKey(service));
+
+        if (device != null) {
+            ThreadUtil.runOnMainThread(new Runnable() {
+                @Override
+                public void run() {
+                    for (DiscoveryClientListener listener : serviceListeners) {
+                        listener.onDeviceRemoved(AirplayDiscoveryClient.this, device);
+                    }
+                }
+            });
+        }
+    }
+
+    private String getServiceKey(BonjourService service) {
+        String key = "";
+        if (service.getInet4Address() != null) {
+            key += service.getInet4Address().getHostAddress();
+        } else if (service.getInet6Address() != null) {
+            key += service.getInet6Address().getHostAddress();
+        }
+        return key;
     }
 
 }

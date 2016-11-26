@@ -214,8 +214,9 @@ public class DiscoveryManager implements DiscoveryClientListener, Foreground.Lis
      * Start scanning for devices on the local network.
      */
     public void start() {
-        if (searching)
+        if (searching) {
             return;
+        }
 
         if (discoveryClients == null) {
             return;

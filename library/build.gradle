@@ -39,7 +39,7 @@ dependencies {
     compile "com.android.support:mediarouter-v7:25.0.1"
     compile 'com.google.android.gms:play-services-cast-framework:10.0.0'
 
-    compile 'com.youview:tinydnssd:1.2.7'
+    compile 'com.github.andriydruk:rxdnssd:0.8.3'
     compile 'org.jmdns:jmdns:3.5.1'
     compile 'com.squareup.okhttp:okhttp:2.7.0'
 

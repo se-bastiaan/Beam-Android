@@ -16,12 +16,10 @@
 
 package com.github.se_bastiaan.beam.device;
 
-import android.net.nsd.NsdServiceInfo;
-import android.os.Build;
-
-import com.github.se_bastiaan.beam.discovery.nsd.RecordResolver;
+import com.github.druk.rxdnssd.BonjourService;
 
 import java.net.InetAddress;
+import java.util.Map;
 
 /**
  * AirPlayDevice.java
@@ -30,40 +28,35 @@ import java.net.InetAddress;
  */
 public class AirPlayDevice extends BeamDevice {
 
-    private NsdServiceInfo service;
+    public BonjourService service;
 
-    protected InetAddress ipAddress;
-    protected Integer port;
-    private String protovers;
+    private InetAddress ipAddress;
+    private Integer port;
     private String srcvers;
+    private String protovers;
     private Boolean pw = false;
 
-    public AirPlayDevice(NsdServiceInfo service, RecordResolver.Result records) {
+    public AirPlayDevice(BonjourService service) {
         this.service = service;
+
+        this.port = service.getPort();
         this.name = service.getServiceName();
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && records == null) {
-            this.ipAddress = service.getHost();
-            this.port = service.getPort();
-
-            this.id = new String(service.getAttributes().get("deviceid"));
-            this.model = new String(service.getAttributes().get("model"));
-            if (service.getAttributes().containsKey("protovers")) {
-                this.protovers = new String(service.getAttributes().get("protovers"));
-            }
-            if (service.getAttributes().containsKey("srcvers")) {
-                this.srcvers = new String(service.getAttributes().get("srcvers"));
-            }
-            byte[] pwBytes = service.getAttributes().containsKey("pw") ? service.getAttributes().get("pw") : null;
-            byte[] pinBytes = service.getAttributes().containsKey("pin") ? service.getAttributes().get("pin") : null;
-            if (pwBytes != null || pinBytes != null) {
-                this.pw = true;
-            }
+        if (service.getInet4Address() != null) {
+            ipAddress = service.getInet4Address();
+        } else if (service.getInet6Address() != null) {
+            ipAddress = service.getInet6Address();
         }
-    }
 
-    public NsdServiceInfo getService() {
-        return service;
+        Map<String, String> records = service.getTxtRecords();
+        this.id = records.get("deviceid");
+        this.model = records.get("model");
+        this.srcvers = records.get("srcvers");
+        this.protovers = records.containsKey("protovers") ? records.get("protovers") : null;
+
+        if (records.containsKey("pw") || records.containsKey("pin")) {
+            this.pw = true;
+        }
     }
 
     public InetAddress getIpAddress() {
@@ -88,6 +81,10 @@ public class AirPlayDevice extends BeamDevice {
 
     public Boolean isPasswordProtected() {
         return pw;
+    }
+
+    public void setName(String name) {
+        this.name = name;
     }
 
 }

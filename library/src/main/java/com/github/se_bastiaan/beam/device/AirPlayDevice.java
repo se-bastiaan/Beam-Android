@@ -48,10 +48,14 @@ public class AirPlayDevice extends BeamDevice {
 
             this.id = new String(service.getAttributes().get("deviceid"));
             this.model = new String(service.getAttributes().get("model"));
-            this.protovers = new String(service.getAttributes().get("protovers"));
-            this.srcvers = new String(service.getAttributes().get("srcvers"));
-            byte[] pwBytes = service.getAttributes().get("pw");
-            byte[] pinBytes = service.getAttributes().get("pin");
+            if (service.getAttributes().containsKey("protovers")) {
+                this.protovers = new String(service.getAttributes().get("protovers"));
+            }
+            if (service.getAttributes().containsKey("srcvers")) {
+                this.srcvers = new String(service.getAttributes().get("srcvers"));
+            }
+            byte[] pwBytes = service.getAttributes().containsKey("pw") ? service.getAttributes().get("pw") : null;
+            byte[] pinBytes = service.getAttributes().containsKey("pin") ? service.getAttributes().get("pin") : null;
             if (pwBytes != null || pinBytes != null) {
                 this.pw = true;
             }

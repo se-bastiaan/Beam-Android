@@ -19,7 +19,6 @@ package com.github.se_bastiaan.beam.discovery.client;
 import android.content.Context;
 import android.net.nsd.NsdManager;
 import android.net.nsd.NsdServiceInfo;
-import android.os.Build;
 
 import com.github.se_bastiaan.beam.device.AirPlayDevice;
 import com.github.se_bastiaan.beam.discovery.DiscoveryClient;
@@ -70,11 +69,11 @@ public class AirplayDiscoveryClient implements DiscoveryClient {
 
         @Override
         public void onServiceFound(NsdServiceInfo nsdServiceInfo) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                nsdManager.resolveService(nsdServiceInfo, resolveListener);
-            } else {
+//            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+//                nsdManager.resolveService(nsdServiceInfo, resolveListener);
+//            } else {
                 resolveService(nsdServiceInfo);
-            }
+//            }
         }
 
         @Override
@@ -155,7 +154,11 @@ public class AirplayDiscoveryClient implements DiscoveryClient {
 
         isRunning = true;
 
-        nsdManager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, discoveryListener);
+        try {
+            nsdManager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, discoveryListener);
+        } catch (IllegalArgumentException e) {
+            // service discovery already active
+        }
     }
 
     @Override
@@ -203,9 +206,9 @@ public class AirplayDiscoveryClient implements DiscoveryClient {
             @Override
             public void run() {
                 try {
-                    RecordResolver.Result result = RecordResolver.resolve(serviceInfo.getServiceName(), RESOLVE_TIMEOUT);
+                    RecordResolver.Result result = RecordResolver.resolve(serviceInfo.getServiceName() + "." + serviceInfo.getServiceType() + "local", RESOLVE_TIMEOUT);
 
-                    if (result.a == null && result.srv == null && result.txt == null) {
+                    if ((result.a == null && result.srv == null && result.txt == null) || !isRunning) {
                         return;
                     }
 

@@ -307,23 +307,11 @@ public class AirPlayClient extends BaseBeamClient implements ServiceListener {
 
     @Override
     public void serviceRemoved(ServiceEvent event) {
-        Logger.d(TAG, "Removed AirPlay service: " + event.getName());
-        discoveredServices.remove(event.getInfo().getKey());
-        AirPlayDevice removedDevice = new AirPlayDevice(event.getInfo());
-        listener.onDeviceRemoved(removedDevice);
-        if (currentDevice != null && currentDevice.getId().equals(removedDevice.getId())) {
-            stopTimer();
-            listener.onDisconnected();
-            currentDevice = null;
-        }
+
     }
 
     @Override
     public void serviceResolved(ServiceEvent event) {
-        Logger.d(TAG, "Resolved AirPlay service: " + event.getName() + " @ " + event.getInfo().getURL());
-        AirPlayDevice device = new AirPlayDevice(event.getInfo());
-        listener.onDeviceDetected(device);
-        discoveredServices.put(event.getInfo().getKey(), event.getInfo());
     }
 
     /**

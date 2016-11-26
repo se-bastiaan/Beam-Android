@@ -16,11 +16,12 @@
 
 package com.github.se_bastiaan.beam.device;
 
-import java.net.Inet4Address;
+import android.net.nsd.NsdServiceInfo;
+import android.os.Build;
 
-import javax.jmdns.ServiceInfo;
+import com.github.se_bastiaan.beam.discovery.nsd.RecordResolver;
 
-import com.github.se_bastiaan.beam.device.BeamDevice;
+import java.net.InetAddress;
 
 /**
  * AirPlayDevice.java
@@ -29,33 +30,39 @@ import com.github.se_bastiaan.beam.device.BeamDevice;
  */
 public class AirPlayDevice extends BeamDevice {
 
-    public ServiceInfo service;
+    private NsdServiceInfo service;
 
-    protected Inet4Address ipAddress;
+    protected InetAddress ipAddress;
     protected Integer port;
     private String protovers;
     private String srcvers;
     private Boolean pw = false;
 
-    public AirPlayDevice(ServiceInfo service) {
+    public AirPlayDevice(NsdServiceInfo service, RecordResolver.Result records) {
         this.service = service;
-        this.id = service.getPropertyString("deviceid");
-        this.model = service.getPropertyString("model");
-        this.protovers = service.getPropertyString("protovers");
-        this.srcvers = service.getPropertyString("srcvers");
-        Inet4Address[] inetAddresses = service.getInet4Addresses();
-        if (inetAddresses.length > 0)
-            this.ipAddress = inetAddresses[0];
-        this.port = service.getPort();
-        this.name = service.getName();
+        this.name = service.getServiceName();
 
-        byte[] pwBytes = service.getPropertyBytes("pw");
-        byte[] pinBytes = service.getPropertyBytes("pin");
-        if (pwBytes != null || pinBytes != null)
-            this.pw = true;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && records == null) {
+            this.ipAddress = service.getHost();
+            this.port = service.getPort();
+
+            this.id = new String(service.getAttributes().get("deviceid"));
+            this.model = new String(service.getAttributes().get("model"));
+            this.protovers = new String(service.getAttributes().get("protovers"));
+            this.srcvers = new String(service.getAttributes().get("srcvers"));
+            byte[] pwBytes = service.getAttributes().get("pw");
+            byte[] pinBytes = service.getAttributes().get("pin");
+            if (pwBytes != null || pinBytes != null) {
+                this.pw = true;
+            }
+        }
     }
 
-    public Inet4Address getIpAddress() {
+    public NsdServiceInfo getService() {
+        return service;
+    }
+
+    public InetAddress getIpAddress() {
         return ipAddress;
     }
 

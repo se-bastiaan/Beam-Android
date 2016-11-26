@@ -21,6 +21,7 @@ public abstract class BeamDevice {
     protected String name;
     protected String model;
     protected Long lastDetection;
+    protected boolean connected = false;
 
     public String getId() {
         return id;
@@ -44,6 +45,14 @@ public abstract class BeamDevice {
 
     public Long getLastDetection() {
         return lastDetection;
+    }
+
+    public boolean isConnected() {
+        return connected;
+    }
+
+    public void setConnected(boolean connected) {
+        this.connected = connected;
     }
 
     @Override

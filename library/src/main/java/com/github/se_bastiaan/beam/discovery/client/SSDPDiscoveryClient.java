@@ -41,6 +41,9 @@ import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -69,6 +72,8 @@ public class SSDPDiscoveryClient implements DiscoveryClient {
 
     private Thread responseThread;
     private Thread notifyThread;
+
+    private ScheduledExecutorService executorService;
 
     private boolean isRunning = false;
 
@@ -109,6 +114,9 @@ public class SSDPDiscoveryClient implements DiscoveryClient {
         isRunning = true;
 
         openSocket();
+
+        int poolSize = 3;
+        executorService = Executors.newScheduledThreadPool(poolSize);
 
         scanTimer = new Timer();
         scanTimer.schedule(new TimerTask() {
@@ -175,6 +183,10 @@ public class SSDPDiscoveryClient implements DiscoveryClient {
             ssdpClient.close();
             ssdpClient = null;
         }
+
+        if (executorService != null && !executorService.isShutdown()) {
+            executorService.shutdown();
+        }
     }
 
     @Override
@@ -192,25 +204,22 @@ public class SSDPDiscoveryClient implements DiscoveryClient {
 
     @Override
     public void rescan() {
-        final String message = SSDPClient.getSSDPSearchMessage(SERVICE_FILTER);
-
-        Timer timer = new Timer();
+        if (executorService != null && !executorService.isShutdown()) {
+            final String message = SSDPClient.getSSDPSearchMessage(SERVICE_FILTER);
             /* Send 3 times like WindowsMedia */
-        for (int i = 0; i < 3; i++) {
-            TimerTask task = new TimerTask() {
-
-                @Override
-                public void run() {
-                    try {
-                        if (ssdpClient != null)
-                            ssdpClient.send(message);
-                    } catch (IOException e) {
-                        e.printStackTrace();
+            for (int i = 0; i < 3; i++) {
+                executorService.schedule(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            if (ssdpClient != null)
+                                ssdpClient.send(message);
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
                     }
-                }
-            };
-
-            timer.schedule(task, i * 1000);
+                }, i, TimeUnit.SECONDS);
+            }
         }
     }
 
@@ -327,7 +336,7 @@ public class SSDPDiscoveryClient implements DiscoveryClient {
                     e.printStackTrace();
                 }
 
-                if (ssdpDevice != null && containsRequiredService(ssdpDevice.serviceList)) {
+                if (ssdpDevice != null && ssdpDevice.deviceType.equalsIgnoreCase("urn:schemas-upnp-org:device:MediaRenderer:1")) {
                     ssdpDevice.UUID = uuid;
                     final DLNADevice device = discoveredDevices.get(uuid);
 
@@ -370,15 +379,6 @@ public class SSDPDiscoveryClient implements DiscoveryClient {
                 }
             }
         });
-    }
-
-    private boolean containsRequiredService(List<Service> services) {
-        for (Service service : services) {
-            if (service.serviceId.equalsIgnoreCase("urn:upnp-org:serviceId:AVTransport")) {
-                return true;
-            }
-        }
-        return false;
     }
 
     @Override

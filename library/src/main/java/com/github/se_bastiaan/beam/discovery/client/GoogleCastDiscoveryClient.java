@@ -73,7 +73,7 @@ public class GoogleCastDiscoveryClient implements DiscoveryClient {
 
         if (mediaRouteSelector == null) {
             mediaRouteSelector = new MediaRouteSelector.Builder()
-                    .addControlCategory(CastMediaControlIntent.categoryForRemotePlayback())
+                    .addControlCategory(CastMediaControlIntent.categoryForCast(CastMediaControlIntent.DEFAULT_MEDIA_RECEIVER_APPLICATION_ID))
                     .build();
         }
 

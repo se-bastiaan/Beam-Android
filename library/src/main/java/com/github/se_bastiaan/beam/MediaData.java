@@ -1,11 +1,12 @@
 package com.github.se_bastiaan.beam;
 
-public class Playback {
+public class MediaData {
 
     public String videoId;
-    public String title;
+    public String title = "";
     public String image;
+    public String mimeType;
     public String videoLocation;
-    public String subtitleLocation;
+    public SubtitleData subtitleData;
 
 }

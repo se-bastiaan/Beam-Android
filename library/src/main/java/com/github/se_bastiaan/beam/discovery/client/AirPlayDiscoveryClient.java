@@ -17,7 +17,6 @@
 package com.github.se_bastiaan.beam.discovery.client;
 
 import android.content.Context;
-import android.util.Log;
 
 import com.github.druk.rxdnssd.BonjourService;
 import com.github.druk.rxdnssd.RxDnssd;
@@ -31,9 +30,6 @@ import java.util.Date;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-import javax.jmdns.ServiceEvent;
-import javax.jmdns.ServiceListener;
-
 import rx.Subscription;
 import rx.android.schedulers.AndroidSchedulers;
 import rx.functions.Action1;
@@ -42,7 +38,7 @@ import rx.schedulers.Schedulers;
 /**
  * Currently only discovers AirPlay devices
  */
-public class AirplayDiscoveryClient implements DiscoveryClient {
+public class AirPlayDiscoveryClient implements DiscoveryClient {
 
     private static final String SERVICE_TYPE = "_airplay._tcp";
 
@@ -50,14 +46,14 @@ public class AirplayDiscoveryClient implements DiscoveryClient {
     private RxDnssd dnssd;
 
     private ConcurrentHashMap<String, AirPlayDevice> foundDevices;
-    private CopyOnWriteArrayList<DiscoveryClientListener> serviceListeners;
+    private CopyOnWriteArrayList<DiscoveryClientListener> clientListeners;
 
     private boolean isRunning = false;
 
-    public AirplayDiscoveryClient(Context context) {
+    public AirPlayDiscoveryClient(Context context) {
         foundDevices = new ConcurrentHashMap<>(8, 0.75f, 2);
 
-        serviceListeners = new CopyOnWriteArrayList<>();
+        clientListeners = new CopyOnWriteArrayList<>();
 
         dnssd = new RxDnssdEmbedded();
     }
@@ -120,12 +116,12 @@ public class AirplayDiscoveryClient implements DiscoveryClient {
 
     @Override
     public void addListener(DiscoveryClientListener listener) {
-        serviceListeners.add(listener);
+        clientListeners.add(listener);
     }
 
     @Override
     public void removeListener(DiscoveryClientListener listener) {
-        serviceListeners.remove(listener);
+        clientListeners.remove(listener);
     }
 
     private void handleServiceFound(BonjourService service) {
@@ -153,8 +149,8 @@ public class AirplayDiscoveryClient implements DiscoveryClient {
         foundDevices.put(key, foundDevice);
 
         if (listUpdateFlag) {
-            for (DiscoveryClientListener listener: serviceListeners) {
-                listener.onDeviceAdded(AirplayDiscoveryClient.this, foundDevice);
+            for (DiscoveryClientListener listener: clientListeners) {
+                listener.onDeviceAdded(AirPlayDiscoveryClient.this, foundDevice);
             }
         }
     }
@@ -166,8 +162,8 @@ public class AirplayDiscoveryClient implements DiscoveryClient {
             ThreadUtil.runOnMainThread(new Runnable() {
                 @Override
                 public void run() {
-                    for (DiscoveryClientListener listener : serviceListeners) {
-                        listener.onDeviceRemoved(AirplayDiscoveryClient.this, device);
+                    for (DiscoveryClientListener listener : clientListeners) {
+                        listener.onDeviceRemoved(AirPlayDiscoveryClient.this, device);
                     }
                 }
             });

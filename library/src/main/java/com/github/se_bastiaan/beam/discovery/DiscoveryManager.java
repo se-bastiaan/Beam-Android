@@ -11,7 +11,7 @@ import android.net.wifi.WifiManager;
 
 import com.github.se_bastiaan.beam.control.ControlClient;
 import com.github.se_bastiaan.beam.device.BeamDevice;
-import com.github.se_bastiaan.beam.discovery.client.AirplayDiscoveryClient;
+import com.github.se_bastiaan.beam.discovery.client.AirPlayDiscoveryClient;
 import com.github.se_bastiaan.beam.discovery.client.GoogleCastDiscoveryClient;
 import com.github.se_bastiaan.beam.discovery.client.SSDPDiscoveryClient;
 import com.github.se_bastiaan.beam.util.Foreground;
@@ -119,26 +119,26 @@ public class DiscoveryManager implements DiscoveryClientListener, Foreground.Lis
         }
     }
 
-    public void registerDefaultDeviceTypes() {
-        registerDiscoveryService(GoogleCastDiscoveryClient.class);
-        registerDiscoveryService(SSDPDiscoveryClient.class);
-        registerDiscoveryService(AirplayDiscoveryClient.class);
+    public void registerDefaultClients() {
+        registerDiscoveryClient(GoogleCastDiscoveryClient.class);
+        registerDiscoveryClient(SSDPDiscoveryClient.class);
+        registerDiscoveryClient(AirPlayDiscoveryClient.class);
     }
 
     /**
      * Registers a DiscoveryClient with DiscoveryManager
      * @param discoveryClass Class for object that should discover devices
      */
-    public void registerDiscoveryService(Class<? extends DiscoveryClient> discoveryClass) {
+    public void registerDiscoveryClient(Class<? extends DiscoveryClient> discoveryClass) {
         if (!DiscoveryClient.class.isAssignableFrom(discoveryClass))
             return;
 
         try {
             DiscoveryClient discoveryClient = null;
 
-            for (DiscoveryClient dp : discoveryClients) {
-                if (dp.getClass().isAssignableFrom(discoveryClass)) {
-                    discoveryClient = dp;
+            for (DiscoveryClient dc : discoveryClients) {
+                if (dc.getClass().isAssignableFrom(discoveryClass)) {
+                    discoveryClient = dc;
                     break;
                 }
             }
@@ -161,11 +161,7 @@ public class DiscoveryManager implements DiscoveryClientListener, Foreground.Lis
      *
      * @param discoveryClass Class for DiscoveryClient that is discovering devices
      */
-    public void unregisterDeviceService(Class<?> deviceClass, Class<?> discoveryClass) {
-        if (!ControlClient.class.isAssignableFrom(deviceClass)) {
-            return;
-        }
-
+    public void unregisterDiscoveryClient(Class<?> discoveryClass) {
         if (!DiscoveryClient.class.isAssignableFrom(discoveryClass)) {
             return;
         }
@@ -173,9 +169,9 @@ public class DiscoveryManager implements DiscoveryClientListener, Foreground.Lis
         try {
             DiscoveryClient discoveryClient = null;
 
-            for (DiscoveryClient dp : discoveryClients) {
-                if (dp.getClass().isAssignableFrom(discoveryClass)) {
-                    discoveryClient = dp;
+            for (DiscoveryClient dc : discoveryClients) {
+                if (dc.getClass().isAssignableFrom(discoveryClass)) {
+                    discoveryClient = dc;
                     break;
                 }
             }
@@ -223,7 +219,7 @@ public class DiscoveryManager implements DiscoveryClientListener, Foreground.Lis
         }
 
         if (discoveryClients.size() == 0) {
-            registerDefaultDeviceTypes();
+            registerDefaultClients();
         }
 
         searching = true;
@@ -261,11 +257,13 @@ public class DiscoveryManager implements DiscoveryClientListener, Foreground.Lis
             multicastLock.release();
         }
 
-        for (BeamDevice device : devices.values()) {
-            handleDeviceLoss(device);
+        for (String key : devices.keySet()) {
+            BeamDevice device = devices.get(key);
+            if (!device.isConnected()) {
+                handleDeviceLoss(device);
+                devices.remove(key);
+            }
         }
-
-        devices.clear();
     }
 
     private void handleDeviceAdd(BeamDevice device) {

@@ -18,23 +18,15 @@ package com.github.se_bastiaan.beam;
 
 import android.content.Context;
 
-import com.github.se_bastiaan.beam.airplay.AirPlayClient;
 import com.github.se_bastiaan.beam.control.ControlManager;
 import com.github.se_bastiaan.beam.control.ControlManagerListener;
 import com.github.se_bastiaan.beam.device.BeamDevice;
 import com.github.se_bastiaan.beam.discovery.DiscoveryManager;
 import com.github.se_bastiaan.beam.discovery.DiscoveryManagerListener;
-import com.github.se_bastiaan.beam.googlecast.GoogleCastClient;
 
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-/**
- * BeamManager.java
- * <p/>
- * This class is the god over all casting clients, those are:
- * {@link AirPlayClient}, {@link GoogleCastClient}
- * It takes note when a device has been detected or removed, controls when a device is connected and chooses which client should be used to cast for that specific {@link BeamDevice}
- */
 public class BeamManager implements DiscoveryManagerListener, ControlManagerListener {
 
     private static BeamManager instance;
@@ -70,6 +62,10 @@ public class BeamManager implements DiscoveryManagerListener, ControlManagerList
         return discoveryManager;
     }
 
+    public ControlManager getControlManager() {
+        return controlManager;
+    }
+
     public void addDiscoveryListener(BeamDiscoveryListener listener) {
         discoveryListeners.add(listener);
     }
@@ -84,6 +80,50 @@ public class BeamManager implements DiscoveryManagerListener, ControlManagerList
 
     public void removeControlListener(BeamControlListener listener) {
         controlListeners.remove(listener);
+    }
+
+    public void loadMedia(MediaData mediaData) {
+        controlManager.loadMedia(mediaData);
+    }
+
+    public void connect(BeamDevice device) {
+        controlManager.connect(device);
+    }
+
+    public void disconnect() {
+        controlManager.disconnect();
+    }
+
+    public void play() {
+        controlManager.play();
+    }
+
+    public void pause() {
+        controlManager.pause();
+    }
+
+    public void seek(long position) {
+        controlManager.seek(position);
+    }
+
+    public void stop() {
+        controlManager.stop();
+    }
+
+    public void setVolume(float volume) {
+        controlManager.setVolume(volume);
+    }
+
+    public boolean canControlVolume() {
+        return controlManager.canControlVolume();
+    }
+
+    public boolean isConnected() {
+        return controlManager.isConnected();
+    }
+
+    public Map<String, BeamDevice> getDevices() {
+        return discoveryManager.getDevices();
     }
 
     @Override
@@ -107,4 +147,31 @@ public class BeamManager implements DiscoveryManagerListener, ControlManagerList
         }
     }
 
+    @Override
+    public void onConnected(ControlManager manager, BeamDevice device) {
+        for (BeamControlListener listener : controlListeners) {
+            listener.onConnected(this, device);
+        }
+    }
+
+    @Override
+    public void onDisconnected(ControlManager manager) {
+        for (BeamControlListener listener : controlListeners) {
+            listener.onDisconnected(this);
+        }
+    }
+
+    @Override
+    public void onVolumeChanged(ControlManager manager, double value, boolean isMute) {
+        for (BeamControlListener listener : controlListeners) {
+            listener.onVolumeChanged(this, value, isMute);
+        }
+    }
+
+    @Override
+    public void onPlayBackChanged(ControlManager manager, boolean isPlaying, long position, long duration) {
+        for (BeamControlListener listener : controlListeners) {
+            listener.onPlayBackChanged(this, isPlaying, position, duration);
+        }
+    }
 }

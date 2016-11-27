@@ -124,8 +124,9 @@ public class AirPlayControlClient implements ControlClient {
 
     @Override
     public void disconnect() {
-        currentDevice = null;
         stopTimer();
+        stop();
+        currentDevice = null;
 
         for (ControlClientListener listener : clientListeners) {
             listener.onDisconnected(this);

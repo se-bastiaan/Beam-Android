@@ -32,6 +32,18 @@
         android:text="0" />
 
     <Button
+        android:id="@+id/connect_button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Connect" />
+
+    <Button
+        android:id="@+id/load_button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Load media" />
+
+    <Button
         android:id="@+id/play_button"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -48,6 +60,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Seek +10 sec"/>
+
     <Button
         android:id="@+id/seek_backward_button"
         android:layout_width="match_parent"

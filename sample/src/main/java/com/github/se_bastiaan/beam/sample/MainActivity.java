@@ -1,5 +1,6 @@
 package com.github.se_bastiaan.beam.sample;
 
+import android.annotation.SuppressLint;
 import android.os.Bundle;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
@@ -12,10 +13,8 @@ import com.github.se_bastiaan.beam.BeamControlListener;
 import com.github.se_bastiaan.beam.BeamDiscoveryListener;
 import com.github.se_bastiaan.beam.BeamManager;
 import com.github.se_bastiaan.beam.MediaData;
-import com.github.se_bastiaan.beam.device.AirPlayDevice;
 import com.github.se_bastiaan.beam.device.BeamDevice;
 import com.github.se_bastiaan.beam.device.DLNADevice;
-import com.github.se_bastiaan.beam.device.GoogleCastDevice;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -27,11 +26,14 @@ public class MainActivity extends AppCompatActivity {
     TextView durationText;
     TextView positionText;
     TextView playStateText;
+    Button connectButton;
+    Button loadMediaButton;
     Button playButton;
     Button pauseButton;
     Button seekForwardButton;
     Button seekBackwardButton;
 
+    @SuppressLint("SetTextI18n")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -40,6 +42,8 @@ public class MainActivity extends AppCompatActivity {
         durationText = (TextView) findViewById(R.id.duration_text);
         positionText = (TextView) findViewById(R.id.position_text);
         playStateText = (TextView) findViewById(R.id.play_state_text);
+        connectButton = (Button) findViewById(R.id.connect_button);
+        loadMediaButton = (Button) findViewById(R.id.load_button);
         playButton = (Button) findViewById(R.id.play_button);
         pauseButton = (Button) findViewById(R.id.pause_button);
         seekForwardButton = (Button) findViewById(R.id.seek_forward_button);
@@ -47,13 +51,12 @@ public class MainActivity extends AppCompatActivity {
 
         final BeamManager manager = BeamManager.init(this);
 
+        connectButton.setText(manager.isConnected() ? "Disconnect" : "Connect");
+
         manager.addDiscoveryListener(new BeamDiscoveryListener() {
             @Override
             public void onDeviceAdded(BeamManager manager, BeamDevice device) {
                 Toast.makeText(MainActivity.this, "Device added: " + device.getName(), Toast.LENGTH_SHORT).show();
-                if (device instanceof DLNADevice && device.getName().contains("Kodi")) {
-                    manager.connect(device);
-                }
             }
 
             @Override
@@ -70,14 +73,13 @@ public class MainActivity extends AppCompatActivity {
         manager.addControlListener(new BeamControlListener() {
             @Override
             public void onConnected(BeamManager manager, BeamDevice device) {
+                connectButton.setText("Disconnect");
                 Log.d(BEAM, "Device connected: " + device.getName());
-                MediaData data = new MediaData();
-                data.videoLocation = "http://distribution.bbb3d.renderfarming.net/video/mp4/bbb_sunflower_1080p_30fps_normal.mp4";
-                manager.loadMedia(data);
             }
 
             @Override
             public void onDisconnected(BeamManager manager) {
+                connectButton.setText("Connect");
                 Log.d(BEAM, "Device disconnected");
             }
 
@@ -94,6 +96,42 @@ public class MainActivity extends AppCompatActivity {
                 durationText.setText(Long.toString(duration));
                 positionText.setText(Long.toString(position));
                 playStateText.setText(isPlaying ? "Playing" : "Not Playing");
+            }
+        });
+
+        connectButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                if (manager.isConnected()) {
+                    manager.disconnect();
+                } else {
+                    DeviceSelectDialogFragment fragment = new DeviceSelectDialogFragment();
+                    fragment.setListener(new DeviceSelectDialogFragment.Listener() {
+                        @Override
+                        public void onResult(BeamDevice device) {
+                            manager.connect(device);
+                        }
+                    });
+                    fragment.show(getSupportFragmentManager(), "device_select");
+                }
+            }
+        });
+
+        loadMediaButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                InputDialogFragment dialogFragment = new InputDialogFragment();
+                dialogFragment.setListener(new InputDialogFragment.Listener() {
+                    @Override
+                    public void onResult(String result) {
+                        MediaData data = new MediaData();
+                        data.videoId = "1000";
+                        data.title = "Beam-Android";
+                        data.videoLocation = result;
+                        manager.loadMedia(data);
+                    }
+                });
+                dialogFragment.show(getSupportFragmentManager(), "input");
             }
         });
 

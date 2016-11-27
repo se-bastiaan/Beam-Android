@@ -216,6 +216,7 @@ public class GoogleCastControlClient implements ControlClient {
             throw new IllegalStateException("Not connected");
         }
 
+        stop();
         waitingForReconnect = false;
         Cast.CastApi.leaveApplication(googleApiClient);
         googleApiClient.disconnect();
@@ -254,6 +255,7 @@ public class GoogleCastControlClient implements ControlClient {
 
     @Override
     public void stop() {
+        stopTimer();
         if (currentDevice == null || googleApiClient == null || !googleApiClient.isConnected()) {
             throw new IllegalStateException("Not connected");
         }

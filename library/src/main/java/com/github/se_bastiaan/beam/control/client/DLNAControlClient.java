@@ -93,44 +93,61 @@ public class DLNAControlClient implements ControlClient {
     }
 
     @Override
-    public void loadMedia(MediaData mediaData) {
-        final String instanceId = "0";
-        String method = "SetAVTransportURI";
-        String metadata = getMetadata(mediaData.videoLocation, mediaData.subtitleData, mediaData.mimeType, mediaData.title, mediaData.image);
-        if (metadata == null) {
-            return;
-        }
-
-        Map<String, String> params = new LinkedHashMap<>();
-        try {
-            params.put("CurrentURI", encodeURL(mediaData.videoLocation));
-        } catch (Exception e) {
-            e.printStackTrace();
-            return;
-        }
-        params.put("CurrentURIMetaData", metadata);
-
-        String payload = getMessageXml(AV_TRANSPORT_URN, method, instanceId, params);
-
-        RequestBody requestBody = RequestBody.create(XML_MIMETYPE, payload);
-
-        Request loadMediaRequest = requestBuilder(AV_TRANSPORT_URN, method)
-                .post(requestBody)
+    public void loadMedia(final MediaData mediaData) {
+        Request headRequest = new Request.Builder()
+                .url(mediaData.videoLocation)
+                .head()
                 .build();
 
-        httpClient.newCall(loadMediaRequest).enqueue(new Callback() {
+        httpClient.newCall(headRequest).enqueue(new Callback() {
             @Override
             public void onFailure(Call call, IOException e) {
-                Logger.d(TAG, "Failure in loadMedia request");
+
             }
 
             @Override
             public void onResponse(Call call, Response response) throws IOException {
-                Logger.d(TAG, "Successful loadMedia request");
-                if (response.isSuccessful()) {
-                    startTimer();
-                    play();
+                final String instanceId = "0";
+                String method = "SetAVTransportURI";
+                String metadata = getMetadata(mediaData.videoLocation, mediaData.subtitleData, response.header("Content-Type"), mediaData.title, mediaData.image);
+                if (metadata == null) {
+                    return;
                 }
+
+                Map<String, String> params = new LinkedHashMap<>();
+                try {
+                    params.put("CurrentURI", encodeURL(mediaData.videoLocation));
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    return;
+                }
+                params.put("CurrentURIMetaData", metadata);
+
+                String payload = getMessageXml(AV_TRANSPORT_URN, method, instanceId, params);
+
+                RequestBody requestBody = RequestBody.create(XML_MIMETYPE, payload);
+
+                Request loadMediaRequest = requestBuilder(AV_TRANSPORT_URN, method)
+                        .post(requestBody)
+                        .build();
+
+                httpClient.newCall(loadMediaRequest).enqueue(new Callback() {
+                    @Override
+                    public void onFailure(Call call, IOException e) {
+                        Logger.d(TAG, "Failure in loadMedia request");
+                    }
+
+                    @Override
+                    public void onResponse(Call call, Response response) throws IOException {
+                        Logger.d(TAG, "Successful loadMedia request");
+                        if (response.isSuccessful()) {
+                            startTimer();
+                            play();
+                        }
+                    }
+                });
+
+                response.close();
             }
         });
     }
@@ -151,7 +168,13 @@ public class DLNAControlClient implements ControlClient {
 
     @Override
     public void disconnect() {
+        currentDevice = null;
+        stopTimer();
+        stop();
 
+        for (ControlClientListener listener : clientListeners) {
+            listener.onDisconnected(this);
+        }
     }
 
     @Override
@@ -219,7 +242,7 @@ public class DLNAControlClient implements ControlClient {
         String method = "Seek";
         String instanceId = "0";
 
-        Map<String, String> parameters = new LinkedHashMap<String, String>();
+        Map<String, String> parameters = new LinkedHashMap<>();
         parameters.put("Unit", "REL_TIME");
         parameters.put("Target", time);
 
@@ -372,8 +395,12 @@ public class DLNAControlClient implements ControlClient {
                             if (response.isSuccessful()) {
                                 String transportState = parseData(response.body().string(), "CurrentTransportState");
 
-                                for (ControlClientListener listener : clientListeners) {
-                                    listener.onPlayBackChanged(DLNAControlClient.this, transportState.equals("PLAYING"), position, duration);
+                                if (transportState.equals("STOPPED")) {
+                                    stopTimer();
+                                } else {
+                                    for (ControlClientListener listener : clientListeners) {
+                                        listener.onPlayBackChanged(DLNAControlClient.this, transportState.equals("PLAYING"), position, duration);
+                                    }
                                 }
                             }
                         }
@@ -439,7 +466,7 @@ public class DLNAControlClient implements ControlClient {
         }
 
         return new Request.Builder()
-                .header("soapaction", urn + "#" + method)
+                .header("soapaction", "\"" + urn + "#" + method + "\"")
                 .url(url);
     }
 
@@ -512,7 +539,7 @@ public class DLNAControlClient implements ControlClient {
         }
     }
 
-    protected String getMetadata(String mediaURL, SubtitleData subtitle, String mime, String title, String iconUrl) {
+    private String getMetadata(String mediaURL, SubtitleData subtitle, String mime, String title, String iconUrl) {
         try {
             String objectClass = "object.item.videoItem";
 
@@ -523,17 +550,17 @@ public class DLNAControlClient implements ControlClient {
             Element didlRoot = doc.createElement("DIDL-Lite");
             Element itemElement = doc.createElement("item");
             Element titleElement = doc.createElement("dc:title");
-            Element descriptionElement = doc.createElement("dc:description");
             Element resElement = doc.createElement("res");
             Element albumArtElement = doc.createElement("upnp:albumArtURI");
-            Element clazzElement = doc.createElement("upnp:class");
+            Element classElement = doc.createElement("upnp:class");
 
             didlRoot.appendChild(itemElement);
             itemElement.appendChild(titleElement);
-            itemElement.appendChild(descriptionElement);
             itemElement.appendChild(resElement);
-            itemElement.appendChild(albumArtElement);
-            itemElement.appendChild(clazzElement);
+            if (iconUrl != null) {
+                itemElement.appendChild(albumArtElement);
+            }
+            itemElement.appendChild(classElement);
 
             didlRoot.setAttributeNS("http://www.w3.org/2000/xmlns/", "xmlns", "urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/");
             didlRoot.setAttributeNS("http://www.w3.org/2000/xmlns/", "xmlns:upnp", "urn:schemas-upnp-org:metadata-1-0/upnp/");
@@ -541,10 +568,9 @@ public class DLNAControlClient implements ControlClient {
             didlRoot.setAttributeNS("http://www.w3.org/2000/xmlns/", "xmlns:sec", "http://www.sec.co.kr/");
 
             titleElement.setTextContent(title);
-            descriptionElement.setTextContent("");
             resElement.setTextContent(encodeURL(mediaURL));
             albumArtElement.setTextContent(encodeURL(iconUrl));
-            clazzElement.setTextContent(objectClass);
+            classElement.setTextContent(objectClass);
 
             itemElement.setAttribute("id", "1000");
             itemElement.setAttribute("parentID", "0");
